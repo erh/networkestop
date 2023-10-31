@@ -1,0 +1,13 @@
+{
+  "module_id": "erh:networkestop",
+  "visibility": "public",
+  "url": "https://github.com/erh/networkestop",
+  "description": "dns lookup to stop all things if dns query fails",
+  "models": [
+    {
+      "api": "rdk:component:sensor",
+      "model": "erh:networkestop:dns"
+    }
+  ],
+  "entrypoint": "./bin/networkestop"
+}
