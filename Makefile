@@ -2,7 +2,6 @@
 bin/networkestop: go.mod *.go cmd/module/*.go
 	go build -o bin/networkestop cmd/module/cmd.go
 
-
 lint:
 	gofmt -s -w .
 
