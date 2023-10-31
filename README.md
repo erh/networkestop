@@ -9,3 +9,9 @@ sample config
    "stop" :   ["myBase"]
 }
 ```
+
+to compile for arm64
+====
+```
+env GOOS=linux GOARCH=arm64 make
+```
