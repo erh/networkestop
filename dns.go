@@ -110,25 +110,32 @@ func (ps *dnsSensor) start() {
 
 	go func() {
 		for utils.SelectContextOrWait(ctx, time.Duration(ps.cfg.IntervalMS)*time.Millisecond) {
-			start := time.Now()
-			err := doDns(ctx, ps.cfg.Server, ps.cfg.Lookup)
-			end := time.Now()
-
-			ps.mu.Lock()
-			ps.lastAttempt = start
-
-			if err == nil {
-				ps.lastSuccess = start
-				ps.lastSuccessTimeMS = end.Sub(start).Milliseconds()
-			} else {
-				ps.stopComponents(ctx)
-			}
-
-			ps.lastError = err
-			ps.mu.Unlock()
+			ps.doLoop(ctx)
 		}
 	}()
 
+}
+
+func (ps *dnsSensor) doLoop(ctx context.Context) {
+	start := time.Now()
+	err := doDns(ctx, ps.cfg.Server, ps.cfg.Lookup)
+	end := time.Now()
+
+	ps.mu.Lock()
+	ps.lastAttempt = start
+
+	if err == nil {
+		ps.lastSuccess = start
+		ps.lastSuccessTimeMS = end.Sub(start).Milliseconds()
+	}
+
+	ps.lastError = err
+	ps.mu.Unlock()
+
+	// we want to do this without any locks
+	if err != nil {
+		ps.stopComponents(ctx)
+	}
 }
 
 func doDns(ctx context.Context, server, lookup string) error {
