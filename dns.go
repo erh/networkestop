@@ -2,14 +2,17 @@ package networkestop
 
 import (
 	"context"
+	"fmt"
+	"strings"
 	"sync"
 	"time"
-	
+
 	"github.com/edaniels/golog"
-	
+	"github.com/miekg/dns"
+
 	"go.viam.com/rdk/components/sensor"
 	"go.viam.com/rdk/resource"
-	"go.viam.com/utils"	
+	"go.viam.com/utils"
 )
 
 var family = resource.ModelNamespace("erh").WithFamily("networkestop")
@@ -26,16 +29,16 @@ func init() {
 }
 
 type Config struct {
-	Server string
-	Lookup string
-	Stop []string
+	Server     string
+	Lookup     string
+	Stop       []string
 	IntervalMS int `json:"interval_ms"`
-	TimeoutMS int `json:"timeout_ms"`
+	TimeoutMS  int `json:"timeout_ms"`
 }
 
 func (cfg *Config) Validate(path string) ([]string, error) {
 	if cfg.Server == "" {
-		return nil, utils.NewConfigValidationFieldRequiredError(path, "host")
+		return nil, utils.NewConfigValidationFieldRequiredError(path, "server")
 	}
 
 	if cfg.Lookup == "" {
@@ -64,41 +67,41 @@ func newDnsSensor(ctx context.Context, deps resource.Dependencies, rawConf resou
 	}
 
 	s := &dnsSensor{
-		name: rawConf.ResourceName(),
+		name:   rawConf.ResourceName(),
 		logger: logger,
-		cfg: conf,
+		cfg:    conf,
 	}
 
 	for n, r := range deps {
 		a, ok := r.(resource.Actuator)
 		if !ok {
-			return fmt.Errorf("%v is not an actuator", n)
+			return nil, fmt.Errorf("%v is not an actuator", n)
 		}
 		s.actuators = append(s.actuators, a)
 	}
-	
+
 	s.start()
-	
+
 	return s, nil
 }
 
 type dnsSensor struct {
 	resource.AlwaysRebuild
 
-	name    resource.Name
+	name   resource.Name
 	logger golog.Logger
-	cfg *Config
+	cfg    *Config
 
 	actuators []resource.Actuator
-	
+
 	cancel context.CancelFunc
-	
+
 	mu sync.Mutex
-	
-	lastAttempt time.Time
-	lastSuccess time.Time
+
+	lastAttempt       time.Time
+	lastSuccess       time.Time
 	lastSuccessTimeMS int64
-	lastError error
+	lastError         error
 }
 
 func (ps *dnsSensor) start() {
@@ -106,21 +109,21 @@ func (ps *dnsSensor) start() {
 	ctx, ps.cancel = context.WithCancel(ctx)
 
 	go func() {
-		for utils.SelectContextOrWait(ctx, time.Duration(ps.cfg.IntervalMS) * time.Millisecond) {
+		for utils.SelectContextOrWait(ctx, time.Duration(ps.cfg.IntervalMS)*time.Millisecond) {
 			start := time.Now()
 			err := doDns(ctx, ps.cfg.Server, ps.cfg.Lookup)
 			end := time.Now()
 
 			ps.mu.Lock()
 			ps.lastAttempt = start
-			
+
 			if err == nil {
 				ps.lastSuccess = start
 				ps.lastSuccessTimeMS = end.Sub(start).Milliseconds()
 			} else {
 				ps.stopComponents(ctx)
 			}
-			
+
 			ps.lastError = err
 			ps.mu.Unlock()
 		}
@@ -129,7 +132,29 @@ func (ps *dnsSensor) start() {
 }
 
 func doDns(ctx context.Context, server, lookup string) error {
-	panic(1)
+	x := strings.Split(server, ":")
+	if len(x) == 1 {
+		server = fmt.Sprintf("%s:53", server)
+	}
+
+	if len(lookup) == 0 {
+		return fmt.Errorf("no lookup address")
+	}
+
+	if lookup[len(lookup)-1] != '.' {
+		lookup = lookup + "."
+	}
+
+	c := dns.Client{}
+
+	m := dns.Msg{}
+	m.Id = dns.Id()
+	m.RecursionDesired = true
+	m.Question = make([]dns.Question, 1)
+	m.Question[0] = dns.Question{lookup, dns.TypeA, dns.ClassINET}
+
+	_, _, err := c.Exchange(&m, server)
+	return err
 }
 
 func (ps *dnsSensor) stopComponents(ctx context.Context) {
@@ -157,11 +182,11 @@ func (ps *dnsSensor) Name() resource.Name {
 func (ps *dnsSensor) Readings(ctx context.Context, extra map[string]interface{}) (map[string]interface{}, error) {
 	ps.mu.Lock()
 	defer ps.mu.Unlock()
-	
+
 	return map[string]interface{}{
-		"last_attempt" : ps.lastAttempt,
-		"last_success" : ps.lastSuccess,
-		"last_success_latency_ms" : ps.lastSuccessTimeMS,
-		"last_error" : ps.lastError,
+		"last_attempt":            ps.lastAttempt,
+		"last_success":            ps.lastSuccess,
+		"last_success_latency_ms": ps.lastSuccessTimeMS,
+		"last_error":              ps.lastError,
 	}, nil
 }
