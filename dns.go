@@ -12,6 +12,7 @@ import (
 
 	"go.viam.com/rdk/components/sensor"
 	"go.viam.com/rdk/resource"
+	"go.viam.com/rdk/services/navigation"
 	"go.viam.com/utils"
 )
 
@@ -72,12 +73,21 @@ func newDnsSensor(ctx context.Context, deps resource.Dependencies, rawConf resou
 		cfg:    conf,
 	}
 
-	for n, r := range deps {
+	for x, r := range deps {
 		a, ok := r.(resource.Actuator)
-		if !ok {
-			return nil, fmt.Errorf("%v is not an actuator", n)
+		if ok {
+			s.actuators = append(s.actuators, a)
+			continue
 		}
-		s.actuators = append(s.actuators, a)
+
+		n, ok := r.(navigation.Service)
+		if ok {
+			s.navs = append(s.navs, n)
+			continue
+		}
+
+		return nil, fmt.Errorf("%v is not an actuator or nav service", x)
+
 	}
 
 	s.start()
@@ -93,6 +103,7 @@ type dnsSensor struct {
 	cfg    *Config
 
 	actuators []resource.Actuator
+	navs      []navigation.Service
 
 	cancel context.CancelFunc
 
@@ -171,6 +182,14 @@ func (ps *dnsSensor) stopComponents(ctx context.Context) {
 			ps.logger.Warnf("cannot stop actuator %v", err)
 		}
 	}
+
+	for _, n := range ps.navs {
+		err := n.SetMode(ctx, navigation.ModeManual, nil)
+		if err != nil {
+			ps.logger.Warnf("cannot stop nav service %v", err)
+		}
+	}
+
 }
 
 func (ps *dnsSensor) Close(ctx context.Context) error {
